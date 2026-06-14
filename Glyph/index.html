@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Glyph</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <main>
+    <h1>Glyph</h1>
+    <p class="tagline">Unscramble the phrase connected to the emoji.</p>
+
+    <section class="puzzle-card" aria-labelledby="puzzle-title">
+      <div id="emoji-display" class="emoji" aria-label="Emoji clue">&#127829;</div>
+      <div>
+        <p id="puzzle-title" class="scrambled-label">Emoji clue</p>
+        <p class="clue-text">Drag the letters into the answer slots.</p>
+      </div>
+    </section>
+
+    <section class="answer-area" aria-labelledby="answer-title">
+      <p id="answer-title" class="scrambled-label">Build your answer</p>
+      <div id="answer-slots" class="answer-slots" aria-label="Answer slots"></div>
+    </section>
+
+    <section class="letter-bank" aria-labelledby="letters-title">
+      <p id="letters-title" class="scrambled-label">Available letters</p>
+      <div id="letter-tiles" class="letter-tiles" aria-label="Draggable letters"></div>
+    </section>
+
+    <p id="message" class="hint" aria-live="polite">Prototype puzzle: the answer is related to the emoji.</p>
+
+    <section id="developer-panel" class="developer-panel" aria-labelledby="developer-title" hidden>
+      <h2 id="developer-title">Developer Mode</h2>
+      <form id="developer-form" class="developer-form">
+        <label>
+          Developer key
+          <input id="developer-key" name="devkey" type="password" autocomplete="off" placeholder="Shared secret">
+        </label>
+        <label>
+          Emoji
+          <input id="developer-emoji" name="emoji" type="text" placeholder="🍕">
+        </label>
+        <label>
+          Scrambled word or phrase
+          <input id="developer-scrambled" name="scrambled" type="text" placeholder="ZAPIZ">
+        </label>
+        <label>
+          Correct answer
+          <input id="developer-answer" name="answer" type="text" placeholder="PIZZA">
+        </label>
+        <button type="submit">Save Puzzle</button>
+      </form>
+      <p id="developer-message" class="developer-message" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <div id="success-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="success-title" hidden>
+    <div class="modal-content">
+      <p class="modal-emoji" aria-hidden="true">&#127881;</p>
+      <h2 id="success-title">You solved it!</h2>
+      <p>Nice work &mdash; the hidden answer was <strong id="modal-answer">PIZZA</strong>.</p>
+      <button id="close-modal" class="modal-button" type="button">Play again soon</button>
+    </div>
+  </div>
+</body>
+</html>
