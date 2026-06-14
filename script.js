@@ -27,6 +27,12 @@ const defaultPuzzle = {
 let currentPuzzle = { ...defaultPuzzle };
 let draggedTile = null;
 let hasWon = false;
+let activePointerTile = null;
+let activePointerOrigin = null;
+let pointerOffsetX = 0;
+let pointerOffsetY = 0;
+let pointerGhost = null;
+let pointerDropTarget = null;
 const developerKeyStorage = "glyph-dev-key";
 
 function createSupabaseClient() {
@@ -83,6 +89,19 @@ function createTile(letter, index) {
     tile.classList.remove("dragging");
   });
 
+  tile.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "touch") {
+      return;
+    }
+
+    if (hasWon) {
+      return;
+    }
+
+    event.preventDefault();
+    beginPointerDrag(tile, event);
+  });
+
   return tile;
 }
 
@@ -128,6 +147,116 @@ function createSlot(index) {
   });
 
   return slot;
+}
+
+function createPointerGhost(tile) {
+  const ghost = tile.cloneNode(true);
+  ghost.classList.add("pointer-ghost");
+  ghost.style.width = `${tile.getBoundingClientRect().width}px`;
+  ghost.style.height = `${tile.getBoundingClientRect().height}px`;
+  document.body.appendChild(ghost);
+  return ghost;
+}
+
+function updatePointerGhost(event) {
+  if (!pointerGhost) {
+    return;
+  }
+
+  pointerGhost.style.transform = `translate(${event.clientX - pointerOffsetX}px, ${event.clientY - pointerOffsetY}px)`;
+
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest(".slot, .letter-tiles");
+
+  if (pointerDropTarget && pointerDropTarget !== target) {
+    pointerDropTarget.classList.remove("drag-over");
+  }
+
+  pointerDropTarget = target;
+
+  if (pointerDropTarget) {
+    pointerDropTarget.classList.add("drag-over");
+  }
+}
+
+function commitPointerDrop(event) {
+  if (!activePointerTile) {
+    return;
+  }
+
+  const dropTarget = document.elementFromPoint(event.clientX, event.clientY)?.closest(".slot, .letter-tiles");
+
+  if (pointerDropTarget) {
+    pointerDropTarget.classList.remove("drag-over");
+  }
+
+  if (dropTarget?.classList.contains("slot")) {
+    const previousParent = activePointerTile.parentElement;
+    const replacedTile = dropTarget.firstElementChild;
+
+    if (replacedTile && previousParent !== dropTarget) {
+      previousParent.appendChild(replacedTile);
+    }
+
+    dropTarget.appendChild(activePointerTile);
+    checkAnswer();
+  } else if (dropTarget?.classList.contains("letter-tiles")) {
+    letterTiles.appendChild(activePointerTile);
+    clearTileStatus();
+    message.textContent = "Drag each letter into a slot to solve it.";
+  } else if (activePointerOrigin) {
+    activePointerOrigin.appendChild(activePointerTile);
+  }
+
+  if (pointerGhost) {
+    pointerGhost.remove();
+  }
+
+  activePointerTile.classList.remove("dragging");
+  activePointerTile = null;
+  activePointerOrigin = null;
+  pointerGhost = null;
+  pointerDropTarget = null;
+
+  document.removeEventListener("pointermove", updatePointerGhost);
+  document.removeEventListener("pointerup", commitPointerDrop);
+  document.removeEventListener("pointercancel", cancelPointerDrag);
+}
+
+function cancelPointerDrag() {
+  if (pointerGhost) {
+    pointerGhost.remove();
+  }
+
+  if (pointerDropTarget) {
+    pointerDropTarget.classList.remove("drag-over");
+  }
+
+  if (activePointerTile) {
+    activePointerTile.classList.remove("dragging");
+  }
+
+  activePointerTile = null;
+  activePointerOrigin = null;
+  pointerGhost = null;
+  pointerDropTarget = null;
+
+  document.removeEventListener("pointermove", updatePointerGhost);
+  document.removeEventListener("pointerup", commitPointerDrop);
+  document.removeEventListener("pointercancel", cancelPointerDrag);
+}
+
+function beginPointerDrag(tile, event) {
+  activePointerTile = tile;
+  activePointerOrigin = tile.parentElement;
+  pointerOffsetX = event.clientX - event.currentTarget.getBoundingClientRect().left;
+  pointerOffsetY = event.clientY - event.currentTarget.getBoundingClientRect().top;
+  pointerGhost = createPointerGhost(tile);
+  tile.classList.add("dragging");
+
+  document.addEventListener("pointermove", updatePointerGhost);
+  document.addEventListener("pointerup", commitPointerDrop);
+  document.addEventListener("pointercancel", cancelPointerDrag);
+  updatePointerGhost(event);
 }
 
 async function playVictoryAnimation(slots) {
@@ -253,6 +382,22 @@ function setupLetterBankDropZone() {
     letterTiles.appendChild(draggedTile);
     clearTileStatus();
     message.textContent = "Drag each letter into a slot to solve it.";
+  });
+}
+
+function setupMobilePointerMode() {
+  if (!window.PointerEvent) {
+    return;
+  }
+
+  if (!window.matchMedia("(pointer: coarse)").matches) {
+    return;
+  }
+
+  document.addEventListener("contextmenu", (event) => {
+    if (event.target.closest(".tile")) {
+      event.preventDefault();
+    }
   });
 }
 
@@ -382,5 +527,6 @@ closeModalButton.addEventListener("click", () => {
 });
 
 setupLetterBankDropZone();
+setupMobilePointerMode();
 setupDeveloperMode();
 loadPuzzleFromSupabase();

@@ -147,6 +147,9 @@ h1 {
   color: #0f172a;
   box-shadow: 0 10px 20px rgba(15, 23, 42, 0.12);
   transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+  touch-action: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .tile:hover {
@@ -156,6 +159,16 @@ h1 {
 
 .tile:active {
   cursor: grabbing;
+}
+
+.pointer-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0.92;
+  transform: translate(-9999px, -9999px);
 }
 
 .tile.dragging {
@@ -318,6 +331,43 @@ h1 {
 
 .modal-button:hover {
   background: #1d4ed8;
+}
+
+@media (max-width: 520px) {
+  body {
+    padding: 12px;
+  }
+
+  main {
+    padding: 20px;
+  }
+
+  .puzzle-card {
+    padding: 20px;
+  }
+
+  .answer-slots,
+  .letter-tiles {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .slot,
+  .tile {
+    width: 46px;
+    height: 46px;
+    border-radius: 12px;
+    font-size: 1.15rem;
+  }
+
+  .slot-space {
+    width: 14px;
+    height: 46px;
+  }
+
+  .developer-panel {
+    padding: 18px;
+  }
 }
 
 @keyframes wave-bounce {
