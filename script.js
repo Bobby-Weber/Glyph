@@ -5,6 +5,7 @@ const supabaseClient = createSupabaseClient();
 
 const emojiDisplay = document.querySelector("#emoji-display");
 const statsButton = document.querySelector("#stats-button");
+const puzzleDate = document.querySelector("#puzzle-date");
 const gameTitle = document.querySelector("#game-title");
 const gameTagline = document.querySelector("#game-tagline");
 const timerBar = document.querySelector("#timer-bar");
@@ -34,6 +35,7 @@ const developerPanel = document.querySelector("#developer-panel");
 const developerForm = document.querySelector("#developer-form");
 const developerKey = document.querySelector("#developer-key");
 const developerScheduled = document.querySelector("#developer-scheduled");
+const developerDaily = document.querySelector("#developer-daily");
 const developerEmoji = document.querySelector("#developer-emoji");
 const developerScrambled = document.querySelector("#developer-scrambled");
 const developerAnswer = document.querySelector("#developer-answer");
@@ -52,6 +54,7 @@ const statsStorageKey = "glyph-daily-stats";
 const gameStartDate = new Date(2026, 5, 1);
 
 let currentPuzzle = { ...defaultPuzzle };
+let currentPuzzleDateKey = getTodayDateKey();
 let draggedTile = null;
 let hasWon = false;
 let roundStarted = false;
@@ -70,6 +73,7 @@ let pointerDropTarget = null;
 let queueRefreshTimer = null;
 let queuePollTimer = null;
 let deleteTargetQueueItemId = null;
+let dailyPuzzleArchive = new Map();
 const developerKeyStorage = "glyph-dev-key";
 
 function createSupabaseClient() {
@@ -134,6 +138,10 @@ function buildShareText(dateLabel, emoji, durationMs) {
   return `Glyph ${dateLabel} ${emoji} ${formatDuration(durationMs || 0)}`;
 }
 
+function getDateLabelForKey(dateKey) {
+  return getDateLabelFromKey(dateKey);
+}
+
 function toDateKey(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -179,13 +187,12 @@ function getDailyStat(stats, dateKey) {
   };
 }
 
-function recordDailyStart() {
+function recordDailyStart(dateKey = currentPuzzleDateKey) {
   const stats = loadLocalStats();
-  const todayKey = getTodayDateKey();
-  const existing = getDailyStat(stats, todayKey);
+  const existing = getDailyStat(stats, dateKey);
 
   if (!existing.started) {
-    stats[todayKey] = {
+    stats[dateKey] = {
       ...existing,
       started: true,
       startedAt: Date.now(),
@@ -195,12 +202,11 @@ function recordDailyStart() {
   }
 }
 
-function recordDailyCompletion(durationMs) {
+function recordDailyCompletion(durationMs, dateKey = currentPuzzleDateKey) {
   const stats = loadLocalStats();
-  const todayKey = getTodayDateKey();
-  const existing = getDailyStat(stats, todayKey);
+  const existing = getDailyStat(stats, dateKey);
 
-  stats[todayKey] = {
+  stats[dateKey] = {
     ...existing,
     started: true,
     completed: true,
@@ -234,6 +240,21 @@ function renderStatsList() {
     const dayStat = getDailyStat(stats, dateKey);
     const item = document.createElement("div");
     item.className = "stats-item";
+    const archivedPuzzle = dailyPuzzleArchive.get(dateKey) || null;
+
+    if (archivedPuzzle) {
+      item.classList.add("is-clickable");
+      item.tabIndex = 0;
+      item.setAttribute("role", "button");
+      item.setAttribute("aria-label", `Open puzzle for ${getDateLabelFromKey(dateKey)}`);
+      item.addEventListener("click", () => openArchivedPuzzle(dateKey));
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openArchivedPuzzle(dateKey);
+        }
+      });
+    }
 
     const dateLabel = document.createElement("div");
     dateLabel.className = "stats-item-date";
@@ -241,7 +262,7 @@ function renderStatsList() {
 
     const emojiLabel = document.createElement("span");
     emojiLabel.className = "stats-item-emoji";
-    emojiLabel.textContent = dayStat.emoji || "❓";
+    emojiLabel.textContent = dayStat.emoji || "?";
 
     const header = document.createElement("div");
     header.className = "stats-item-header";
@@ -258,8 +279,9 @@ function renderStatsList() {
       shareButton.type = "button";
       shareButton.className = "stats-share-button";
       shareButton.textContent = "Share";
-      shareButton.addEventListener("click", async () => {
-        const shareText = buildShareText(getDateLabelFromKey(dateKey), dayStat.emoji || "❓", dayStat.durationMs || 0);
+      shareButton.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const shareText = buildShareText(getDateLabelFromKey(dateKey), dayStat.emoji || "?", dayStat.durationMs || 0);
 
         try {
           await navigator.clipboard.writeText(shareText);
@@ -287,10 +309,10 @@ function renderStatsList() {
       meta.textContent = "Not started";
       item.append(header, meta);
     }
+
     statsList.appendChild(item);
   });
 }
-
 function sortLetters(value) {
   return normalizeText(value).split("").sort().join("");
 }
@@ -318,6 +340,57 @@ function setDefaultScheduledTime() {
   developerScheduled.value = toLocalDateTimeInputValue(new Date(Date.now() + 5 * 60 * 1000));
 }
 
+function setCurrentPuzzle(nextPuzzle, dateKey, shouldRender = true) {
+  currentPuzzle = { ...nextPuzzle };
+  currentPuzzleDateKey = dateKey;
+  hasWon = false;
+  roundStarted = false;
+  roundStartTimestamp = null;
+  finalRoundTime = null;
+  stopTimer();
+  updateTimerDisplay(0);
+
+  if (shouldRender) {
+    renderPuzzle();
+  }
+}
+
+function fillCompletedPuzzleDisplay() {
+  const answer = normalizeAnswerDisplay(currentPuzzle.answer);
+  const tilesByLetter = new Map();
+
+  [...letterTiles.querySelectorAll('.tile')].forEach((tile) => {
+    const letter = tile.dataset.letter;
+    if (!tilesByLetter.has(letter)) {
+      tilesByLetter.set(letter, []);
+    }
+    tilesByLetter.get(letter).push(tile);
+  });
+
+  const slots = [...answerSlots.querySelectorAll('.slot')];
+  let slotIndex = 0;
+
+  answer.split('').forEach((character) => {
+    if (character === ' ') {
+      return;
+    }
+
+    const slot = slots[slotIndex];
+    const tileQueue = tilesByLetter.get(character) || [];
+    const tile = tileQueue.shift();
+
+    if (slot && tile) {
+      slot.appendChild(tile);
+      tile.classList.add('correct');
+    }
+
+    slotIndex += 1;
+  });
+
+  hasWon = true;
+  message.textContent = 'Correct! Deliciously unscrambled.';
+}
+
 function updateTimerDisplay(milliseconds = 0) {
   timerDisplay.textContent = formatDuration(milliseconds);
 }
@@ -334,11 +407,11 @@ function stopTimer() {
   }
 }
 
-function startTimer() {
+function startTimer(elapsedMilliseconds = 0) {
   roundStarted = true;
-  roundStartTimestamp = Date.now();
+  roundStartTimestamp = Date.now() - elapsedMilliseconds;
   finalRoundTime = null;
-  updateTimerDisplay(0);
+  updateTimerDisplay(elapsedMilliseconds);
 
   if (timerInterval) {
     clearInterval(timerInterval);
@@ -398,8 +471,10 @@ function showGameView() {
 
 function showStatsView() {
   currentView = "stats";
-  renderStatsList();
   updateViewVisibility();
+  void refreshDailyArchiveFromSupabase().finally(() => {
+    renderStatsList();
+  });
 }
 
 function updateModeToggleUI() {
@@ -759,6 +834,7 @@ function renderPuzzle() {
   const scrambled = normalizeText(currentPuzzle.scrambled);
   let slotIndex = 0;
 
+  puzzleDate.textContent = getDateLabelForKey(currentPuzzleDateKey);
   emojiDisplay.textContent = currentPuzzle.emoji;
   emojiDisplay.setAttribute("aria-label", `${currentPuzzle.emoji} emoji clue`);
   modalAnswer.textContent = answer;
@@ -869,6 +945,7 @@ function validatePuzzle(puzzle) {
 
 function populateDeveloperForm() {
   setDefaultScheduledTime();
+  developerDaily.checked = true;
   developerEmoji.value = "";
   developerScrambled.value = "";
   developerAnswer.value = "";
@@ -914,9 +991,20 @@ function renderQueueList(queueItems, currentItemId) {
     emoji.className = "queue-item-emoji";
     emoji.textContent = item.emoji;
 
+    const metaRow = document.createElement("div");
+    metaRow.className = "queue-item-meta-row";
+
+    if (item.is_daily) {
+      const dailyBadge = document.createElement("span");
+      dailyBadge.className = "queue-item-badge";
+      dailyBadge.textContent = "Daily";
+      metaRow.appendChild(dailyBadge);
+    }
+
     const scheduledTime = document.createElement("div");
     scheduledTime.className = "queue-item-time";
     scheduledTime.textContent = formatQueueDateTime(item.scheduled_at);
+    metaRow.appendChild(scheduledTime);
 
     const answer = document.createElement("p");
     answer.className = "queue-item-answer";
@@ -931,9 +1019,9 @@ function renderQueueList(queueItems, currentItemId) {
     deleteButton.textContent = "Delete";
     deleteButton.addEventListener("click", () => openDeleteModal(item.id));
 
-    actions.append(scheduledTime, deleteButton);
+    actions.append(deleteButton);
     topRow.append(emoji, actions);
-    queueItem.append(topRow, answer);
+    queueItem.append(topRow, metaRow, answer);
     queueList.appendChild(queueItem);
   });
 }
@@ -966,6 +1054,7 @@ function scheduleQueueRefresh(queueItems) {
 async function refreshPuzzleFromSupabase() {
   if (!supabaseClient) {
     message.textContent = "Add your Supabase Project URL in script.js to load the shared puzzle.";
+    setCurrentPuzzle({ ...defaultPuzzle }, getTodayDateKey(), false);
     renderPuzzle();
     renderQueueList([], null);
     return;
@@ -973,12 +1062,13 @@ async function refreshPuzzleFromSupabase() {
 
   const { data, error } = await supabaseClient
     .from("puzzle_queue")
-    .select("id, emoji, scrambled, answer, scheduled_at, created_at")
+    .select("id, emoji, scrambled, answer, scheduled_at, created_at, is_daily, archive_date_key")
     .order("scheduled_at", { ascending: true })
     .order("created_at", { ascending: true });
 
   if (error) {
     message.textContent = "Could not load the puzzle queue, so the default puzzle is showing.";
+    setCurrentPuzzle({ ...defaultPuzzle }, getTodayDateKey(), false);
     renderPuzzle();
     renderQueueList([], null);
     return;
@@ -986,14 +1076,92 @@ async function refreshPuzzleFromSupabase() {
 
   currentQueueItems = data || [];
   const activeItem = getActiveQueueItem(currentQueueItems);
-  if (!currentPuzzle.id) {
-    currentPuzzle = activeItem || { ...defaultPuzzle };
-    renderPuzzle();
-  }
+  const nextPuzzle = activeItem || { ...defaultPuzzle };
+  const nextPuzzleDateKey = activeItem
+    ? (activeItem.is_daily && activeItem.archive_date_key
+      ? activeItem.archive_date_key
+      : toDateKey(new Date(activeItem.scheduled_at)))
+    : getTodayDateKey();
+  setCurrentPuzzle(nextPuzzle, nextPuzzleDateKey, true);
 
   renderQueueList(currentQueueItems, activeItem?.id || null);
+  await refreshDailyArchiveFromSupabase();
 }
 
+async function refreshDailyArchiveFromSupabase() {
+  if (!supabaseClient) {
+    dailyPuzzleArchive = new Map();
+    return;
+  }
+
+  const { data, error } = await supabaseClient
+    .from("daily_puzzle_archive")
+    .select("date_key, emoji, scrambled, answer, created_at, updated_at")
+    .order("date_key", { ascending: false });
+
+  if (error) {
+    return;
+  }
+
+  dailyPuzzleArchive = new Map((data || []).map((item) => [item.date_key, item]));
+}
+
+async function openArchivedPuzzle(dateKey) {
+  let archivedPuzzle = dailyPuzzleArchive.get(dateKey) || null;
+
+  if (!archivedPuzzle && supabaseClient) {
+    const { data, error } = await supabaseClient
+      .from("daily_puzzle_archive")
+      .select("date_key, emoji, scrambled, answer")
+      .eq("date_key", dateKey)
+      .maybeSingle();
+
+    if (!error) {
+      archivedPuzzle = data || null;
+      if (archivedPuzzle) {
+        dailyPuzzleArchive.set(dateKey, archivedPuzzle);
+      }
+    }
+  }
+
+  if (!archivedPuzzle) {
+    message.textContent = "No archived puzzle exists for that day yet.";
+    showGameView();
+    return;
+  }
+
+  const stats = loadLocalStats();
+  const dayStat = getDailyStat(stats, dateKey);
+
+  currentPuzzle = { ...archivedPuzzle };
+  currentPuzzleDateKey = dateKey;
+
+  stopTimer();
+  roundStarted = false;
+  hasWon = false;
+  roundStartTimestamp = null;
+  finalRoundTime = null;
+
+  if (dayStat.completed) {
+    roundStarted = true;
+    renderPuzzle();
+    finalRoundTime = dayStat.durationMs || 0;
+    updateTimerDisplay(finalRoundTime);
+    fillCompletedPuzzleDisplay();
+  } else if (dayStat.started) {
+    const elapsedMilliseconds = dayStat.durationMs || Math.max(0, Date.now() - (dayStat.startedAt || Date.now()));
+    renderPuzzle();
+    startTimer(elapsedMilliseconds);
+    message.textContent = `Resuming the puzzle from ${getDateLabelFromKey(dateKey)}.`;
+  } else {
+    roundStarted = false;
+    hasWon = false;
+    renderPuzzle();
+    message.textContent = `Start the puzzle from ${getDateLabelFromKey(dateKey)}.`;
+  }
+
+  showGameView();
+}
 function openDeleteModal(queueItemId) {
   deleteTargetQueueItemId = queueItemId;
   deleteModal.hidden = false;
@@ -1034,6 +1202,8 @@ async function savePuzzleToSupabase(nextPuzzle) {
     p_scrambled: nextPuzzle.scrambled,
     p_answer: nextPuzzle.answer,
     p_scheduled_at: nextPuzzle.scheduledAt,
+    p_is_daily: nextPuzzle.isDaily,
+    p_archive_date_key: nextPuzzle.archiveDateKey,
   });
 
   if (error) {
@@ -1078,6 +1248,8 @@ async function setupDeveloperMode() {
       scrambled: developerScrambled.value.trim(),
       answer: normalizeAnswerDisplay(developerAnswer.value),
       scheduledAt: scheduledAt.toISOString(),
+      isDaily: developerDaily.checked,
+      archiveDateKey: developerDaily.checked ? toDateKey(scheduledAt) : null,
     };
 
     const error = validatePuzzle(nextPuzzle);
@@ -1113,7 +1285,7 @@ statsModalButton.addEventListener("click", () => {
 });
 
 shareResultsButton.addEventListener("click", async () => {
-  const shareText = buildShareText(formatShareDate(new Date()), currentPuzzle.emoji, finalRoundTime || 0);
+  const shareText = buildShareText(getDateLabelForKey(currentPuzzleDateKey), currentPuzzle.emoji, finalRoundTime || 0);
 
   try {
     await navigator.clipboard.writeText(shareText);

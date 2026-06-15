@@ -19,6 +19,7 @@
 
   <main>
     <button id="stats-button" class="nav-button" type="button">Stats</button>
+    <div id="puzzle-date" class="puzzle-date" aria-label="Puzzle date"></div>
     <h1 id="game-title">Glyph</h1>
     <p id="game-tagline" class="tagline">Unscramble the phrase connected to the emoji.</p>
 
@@ -69,6 +70,10 @@
           <label>
             Scheduled time
             <input id="developer-scheduled" name="scheduled" type="datetime-local">
+          </label>
+          <label class="developer-toggle">
+            <input id="developer-daily" name="daily" type="checkbox" checked>
+            <span>Save as daily puzzle</span>
           </label>
           <label>
             Emoji
